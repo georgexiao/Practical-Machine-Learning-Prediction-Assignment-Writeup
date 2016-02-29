@@ -1,0 +1,97 @@
+---
+title: 'Practical Machine Learning: Prediction Assignment Writeup'
+author: "George Xiao"
+date: "Sunday, Feb 28, 2016"
+output: html_document
+---
+
+## Summary
+This is a writeup for the assignment of Coursera course "Practical Machine Learning". A large amount of people exercise data from accelerators were given in this project. The goal of this project is to predict the manner in which they did the exercise.
+
+The training data for this project are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv). The test data are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). More information is available from the website [here](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+## Data Processing
+
+In this section, I describe (in words and codes) how the data were loaded into R and pre-processed for analysis.
+
+#### Global Settings
+
+Firstly, let's set up the environment for the R markdown file
+```{r global_options, include=TRUE, warning= FALSE, message=FALSE}
+knitr::opts_chunk$set(fig.width = 10, fig.height = 10, fig.path = 'Figs/',
+                      echo = TRUE, warning = FALSE, message = FALSE)
+library(caret)
+library(ggplot2)
+library(randomForest)
+library(doParallel)
+```
+
+#### Load Data
+
+The next thing is to load the raw data and take a quick look of them. *Note*, you need to set working directory to the same folder with the data file
+```{r load_data, cache=TRUE}
+if(file.exists("pml-training.csv")) 
+    trainData <- read.csv("pml-training.csv", header = T)
+if(file.exists("pml-testing.csv")) 
+    testData <- read.csv("pml-testing.csv", header = T)
+
+dim(trainData)
+dim(testData)
+```
+
+#### Clean Data
+
+Now with the raw data, let's pre-process it before feeding it to our model. Obviously, we can start with removing the columns with all `NA` and empty value.
+
+```{r remove_NA}
+trainData.clean0 <- trainData[ , colSums(is.na(trainData)) == 0]                # Remove columns with only NA
+trainData.clean1 <- trainData.clean0[, colSums(trainData.clean0 == '') == 0]    # Remove columns with no value
+```
+
+Then we can also remove the first seven columns. These are users' information and timestamp which have nothing to do with our study.
+```{r remove_useless_info}
+trainData.clean2 <- trainData.clean1[ , -(1:7)]
+```
+
+Finally, we have a clean data set with only 53 columns:
+```{r temp}
+dim(trainData.clean2)
+```
+
+## Model Fitting
+In this section, after we have a clean dataset, let's create a forecast model.
+
+#### Split data for cross validation
+Here I am spiting the data into 70% for training and 30% for testing.
+```{r split_data}
+set.seed(1552)
+inTrain <- createDataPartition(trainData.clean2$classe, p = 0.7, list = F)
+training <- trainData.clean2[inTrain, ]
+testing <- trainData.clean2[-inTrain, ]
+```
+
+#### Random Forest
+
+In this study, I am choosing the `Random Forest` algorithm. Two reasons to pick this algorithm: 1) RF is harder to overfit; 2) RF is very robust.
+
+Here I am using the help from library `doParallel` to speed up the model fitting process.
+
+```{r model_fitting}
+registerDoParallel(cores = 4)   # use 4 cores for parallel execution
+
+set.seed(1631)
+rfModel <- randomForest(classe ~ ., data = training, ntree = 250, importance = T)
+rfModel
+```
+
+Below please find the importance rank for all variables based on our model:
+```{r imp_plot}
+varImpPlot(rfModel)
+```
+
+Lastly, with the model, let's evaluate it on the testing data set:
+```{r model_evaluation}
+prediction <- predict(rfModel, testing)
+confusionMatrix(prediction, testing$classe)
+```
+The accuracy on the testing data is 0.9947. We can safely conclude this model is a good fit.
